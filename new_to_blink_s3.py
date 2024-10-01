@@ -13,7 +13,6 @@ nxt_observation_date = pendulum.parse(observation_date).add(days=1).to_date_stri
 q = f'''
 -- 30 days within shell
 -- transaction table participants id == 1
--- 
 
 WITH ranked_transactions AS (
   SELECT 
@@ -22,7 +21,9 @@ WITH ranked_transactions AS (
     ods.total_txn_value,
     ods.transaction_date, 
     blm.assign_date,
-    DATE_DIFF(DATE(ods.transaction_date), DATE(blm.assign_date), DAY) AS day_diff,
+    app.createddateutc,
+    DATE_DIFF(DATE(ods.transaction_date), DATE(app.createddateutc), DAY) AS app_day_diff,
+    DATE_DIFF(DATE(ods.transaction_date), DATE(blm.assign_date), DAY) AS blm_day_diff,
     ROW_NUMBER() OVER (PARTITION BY ods.card_no ORDER BY ods.transaction_id ASC) AS row_num,
     blm.mobile,
     blm.mobile_original,
@@ -32,18 +33,20 @@ WITH ranked_transactions AS (
   FROM 
     `blink-data-warehouse.base_layer.ods_tx_txn_df` ods
   LEFT JOIN 
-    `blink-data-warehouse.base_layer.etl_cd_card` blm
+    `blink-data-warehouse.aggregate_layer.dws_etl_cd_card_df` blm
   ON 
-    CAST(TRIM(ods.card_no) AS INT) = CAST(TRIM(blm.card_no) AS INT)
+    CAST(TRIM(ods.card_no) AS INT) = CAST(blm.card_no AS INT)
+  LEFT JOIN 
+    `blink-data-warehouse.aggregate_layer.dws_etl_mobileapp2_blmember_df` app
+  ON
+    CAST(TRIM(ods.card_no) AS INT) = app.blcard
   WHERE
-    blm._PARTITIONTIME >= TIMESTAMP("{joinable_date}")
-    AND ods.partition_dt >= "2024-07-15"
+    ods.partition_dt >= "2024-07-15"
     AND TRIM(tx_type_code) IN ("0", "4")
-    AND blm.assign_date >= "2024-07-22"
+    AND app.createddateutc >= "2024-07-22"
     AND ods.transaction_date >= "2024-07-22"
+    AND DATE_DIFF(DATE(ods.transaction_date), DATE(app.createddateutc), DAY) <= 30
     AND DATE_DIFF(DATE(ods.transaction_date), DATE(blm.assign_date), DAY) <= 30
-    AND DATE_DIFF(DATE(ods.transaction_date), DATE(blm.assign_date), DAY) >= 0
-    AND blm.assign_date < ods.transaction_date
     AND ods.total_txn_value >= 30
 )
 
@@ -53,7 +56,9 @@ SELECT
   total_txn_value,
   transaction_date, 
   assign_date as registration_date, 
-  day_diff,
+  createddateutc as app_install_date,
+  app_day_diff,
+  blm_day_diff,
   mobile,
   mobile_original,
   name,
@@ -66,6 +71,10 @@ WHERE
 '''
 
 df = bq_to_pd_v2(q)
+
+#trim card_no and convert it to int
+df['card_no'] = df['card_no'].str.strip()
+df['card_no'] = df['card_no'].astype(int)
 #fillna mobile with mobile_original
 df['mobile'] = df['mobile'].fillna(df['mobile_original'])
 df.drop(columns=['mobile_original', 'email'], inplace=True)
