@@ -47,6 +47,8 @@ WITH ranked_transactions AS (
     AND ods.transaction_date >= "2024-07-22"
     AND DATE_DIFF(DATE(ods.transaction_date), DATE(app.createddateutc), DAY) <= 30
     AND DATE_DIFF(DATE(ods.transaction_date), DATE(blm.assign_date), DAY) <= 30
+    AND DATE_DIFF(DATE(ods.transaction_date), DATE(app.createddateutc), DAY) >= -2
+    AND DATE_DIFF(DATE(ods.transaction_date), DATE(blm.assign_date), DAY) >= -2
     AND ods.total_txn_value >= 30
 )
 
@@ -75,6 +77,28 @@ df = bq_to_pd_v2(q)
 #trim card_no and convert it to int
 df['card_no'] = df['card_no'].str.strip()
 df['card_no'] = df['card_no'].astype(int)
+
+import pandas as pd
+def clean_broken_csv_elements(df):
+    for col in df.columns:
+        # Check if the column contains strings
+        if pd.api.types.is_string_dtype(df[col]):
+            # Define a function to clean elements with extra commas
+            def remove_extra_commas(element):
+                if ',' in element:
+                    print(f"Broken CSV element found in column '{col}': {element}")
+                    # Remove extra commas (or modify as needed)
+                    return element.replace(',', '')
+                return element
+            
+            # Apply the function to the entire column
+            df[col] = df[col].apply(remove_extra_commas)
+    
+    return df
+
+# Clean the DataFrame
+df = clean_broken_csv_elements(df)
+
 #fillna mobile with mobile_original
 df['mobile'] = df['mobile'].fillna(df['mobile_original'])
 df.drop(columns=['mobile_original', 'email'], inplace=True)
