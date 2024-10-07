@@ -42,6 +42,7 @@ WITH ranked_transactions AS (
     CAST(TRIM(ods.card_no) AS INT) = app.blcard
   WHERE
     ods.partition_dt >= "2024-07-15"
+    AND ods.partition_dt <= "{observation_date}"
     AND TRIM(tx_type_code) IN ("0", "4")
     AND app.createddateutc >= "2024-07-22"
     AND ods.transaction_date >= "2024-07-22"
@@ -107,6 +108,10 @@ df.drop(columns=['mobile_original', 'email'], inplace=True)
 df = df.map(lambda x: x.strip() if isinstance(x, str) else x)
 df["partition_dt"] = df["partition_dt"].astype(str)
 df = df[df["partition_dt"] == observation_date]
+
+df.rename({"app_day_diff": "day_diff"}, axis=1, inplace=True)
+df = df[['transaction_id', 'card_no', 'total_txn_value', 'transaction_date',
+       'registration_date', 'day_diff', 'mobile', 'name', 'partition_dt']]
 
 #SENSITIVE ASSIGNMENT#!!!!!!!!!!!!!
 region_name = "ap-southeast-1"
